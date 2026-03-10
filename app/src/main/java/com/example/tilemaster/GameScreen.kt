@@ -963,7 +963,7 @@ fun HomeView(
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = "$placedCount/$totalCount",
-                fontSize = 12.sp,
+                fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimary
             )
