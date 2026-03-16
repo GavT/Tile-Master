@@ -13,6 +13,8 @@ data class GameState(
     val elapsedMillis: Long = 0L,
     val startTimeMillis: Long = 0L,
     val timeLimitMillis: Long = 60_000L,
+    val hazardSpreadMs: Long = 2000L,
+    val maxLevel: Int = 10,
     val colorTotals: Map<TileColor, Int> = emptyMap(),
     // Animation triggers
     val wrongShakeKey: Int = 0,

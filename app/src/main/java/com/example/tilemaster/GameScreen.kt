@@ -90,17 +90,13 @@ fun formatTime(millis: Long): String {
 private val BgGradientTop = Color(0xFF1A0533)
 private val BgGradientBottom = Color(0xFF0D47A1)
 private val AccentGold = Color(0xFFFFD740)
-private val AccentGoldLight = Color(0xFFFFF176)
 private val TextPrimary = Color.White
 private val TextSecondary = Color(0xFFB39DDB)
 private val PileCardBg = Color(0xFF2A1B3D)
 private val PileCardEmpty = Color(0xFF1A1028)
-private val MysteryPurple = Color(0xFF9C27B0)
-private val MysteryHighlight = Color(0xFFCE93D8)
 private val BombOrange = Color(0xFFFF6D00)
 private val BombHighlight = Color(0xFFFFAB40)
 private val BombShadow = Color(0xFFBF360C)
-private val HazardOverlay = Color(0x44000000)
 
 data class FlyingTileInfo(
     val tile: Tile,
@@ -278,8 +274,6 @@ fun GameScreen(viewModel: GameViewModel) {
 
             // Instruction text
             val instructionText = when {
-                state.selectedTile != null && state.selectedTile!!.hidden ->
-                    "Tap a home for the Mystery tile!"
                 state.selectedTile != null && state.selectedTile!!.isHazard ->
                     "Tap the ${state.selectedTile!!.color.displayName} home! (${state.selectedTile!!.hazardMarks} left)"
                 state.selectedTile != null ->
@@ -456,6 +450,7 @@ fun GameScreen(viewModel: GameViewModel) {
                 dismissButton = {}
             )
         } else {
+            val isFinalLevel = state.level >= state.maxLevel
             // Win dialog
             AlertDialog(
                 onDismissRequest = { },
@@ -464,7 +459,7 @@ fun GameScreen(viewModel: GameViewModel) {
                 textContentColor = TextPrimary,
                 title = {
                     Text(
-                        text = "Level ${state.level} Complete!",
+                        text = if (isFinalLevel) "You Beat TileMaster!" else "Level ${state.level} Complete!",
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 22.sp,
                         modifier = Modifier.fillMaxWidth(),
@@ -477,7 +472,7 @@ fun GameScreen(viewModel: GameViewModel) {
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "All tiles are home!",
+                            text = if (isFinalLevel) "Congratulations! You completed all ${state.maxLevel} levels!" else "All tiles are home!",
                             fontSize = 16.sp,
                             textAlign = TextAlign.Center,
                             color = TextSecondary
@@ -500,23 +495,36 @@ fun GameScreen(viewModel: GameViewModel) {
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { viewModel.startNextLevel() }) {
-                        Text(
-                            "Next Level",
-                            color = AccentGold,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
+                    if (isFinalLevel) {
+                        TextButton(onClick = { viewModel.startNewGame() }) {
+                            Text(
+                                "Play Again",
+                                color = AccentGold,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                        }
+                    } else {
+                        TextButton(onClick = { viewModel.startNextLevel() }) {
+                            Text(
+                                "Next Level",
+                                color = AccentGold,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp
+                            )
+                        }
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { viewModel.startNewGame() }) {
-                        Text(
-                            "Restart",
-                            color = TextSecondary,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 14.sp
-                        )
+                    if (!isFinalLevel) {
+                        TextButton(onClick = { viewModel.startNewGame() }) {
+                            Text(
+                                "Restart",
+                                color = TextSecondary,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp
+                            )
+                        }
                     }
                 }
             )
@@ -555,21 +563,7 @@ fun FlyingTileOverlay(
                 .offset { IntOffset((x - halfTile).toInt(), (y - halfTile).toInt()) }
                 .scale(tileScale)
         ) {
-            if (info.tile.hidden) {
-                CandyTile(
-                    color = MysteryPurple,
-                    highlight = MysteryHighlight,
-                    shadow = Color(0xFF4A148C),
-                    size = 48
-                ) {
-                    Text(
-                        text = "?",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color.White
-                    )
-                }
-            } else if (info.tile.isHazard) {
+            if (info.tile.isHazard) {
                 CandyTile(
                     color = info.tile.color.color,
                     highlight = info.tile.color.highlight,
@@ -827,20 +821,6 @@ fun PileView(
                                 Text(
                                     text = "\uD83D\uDCA3",
                                     fontSize = 22.sp
-                                )
-                            }
-                        } else if (topTile.hidden) {
-                            CandyTile(
-                                color = MysteryPurple,
-                                highlight = MysteryHighlight,
-                                shadow = Color(0xFF4A148C),
-                                size = 48
-                            ) {
-                                Text(
-                                    text = "?",
-                                    fontSize = 24.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White
                                 )
                             }
                         } else if (topTile.isHazard) {
