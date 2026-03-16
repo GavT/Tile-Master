@@ -15,6 +15,8 @@ class SoundManager {
     private val clickSamples: ShortArray by lazy { generateClick() }
     private val correctSamples: ShortArray by lazy { generateCorrectPing() }
     private val wrongSamples: ShortArray by lazy { generateWrongBuzz() }
+    private val countdownBeepSamples: ShortArray by lazy { generateCountdownBeep() }
+    private val timeUpSamples: ShortArray by lazy { generateTimeUp() }
 
     fun playClick() {
         playOnExecutor(clickSamples)
@@ -31,6 +33,14 @@ class SoundManager {
     fun playFanfare() {
         // Fanfare is infrequent; generate on demand
         playOnExecutor(generateFanfare())
+    }
+
+    fun playCountdownBeep() {
+        playOnExecutor(countdownBeepSamples)
+    }
+
+    fun playTimeUp() {
+        playOnExecutor(timeUpSamples)
     }
 
     fun release() {
@@ -137,6 +147,45 @@ class SoundManager {
                 samples[sampleIndex] = (samples[sampleIndex] + sample)
                     .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
             }
+        }
+        return samples
+    }
+
+    private fun generateCountdownBeep(): ShortArray {
+        val numSamples = SAMPLE_RATE * 80 / 1000 // 80ms sharp beep
+        return ShortArray(numSamples) { i ->
+            val progress = i.toDouble() / numSamples
+            val envelope = if (progress < 0.05) progress / 0.05 else (1.0 - progress)
+            (Short.MAX_VALUE * 0.45 * envelope * sin(TWO_PI * 1200.0 * i / SAMPLE_RATE))
+                .toInt().toShort()
+        }
+    }
+
+    private fun generateTimeUp(): ShortArray {
+        // Descending trombone "wah wah wah wahhh"
+        val notes = doubleArrayOf(392.0, 369.99, 349.23, 261.63) // G4, F#4, F4, C4
+        val durations = intArrayOf(200, 200, 200, 500)
+        val totalMs = durations.sum()
+        val numSamples = SAMPLE_RATE * totalMs / 1000
+        val samples = ShortArray(numSamples)
+
+        var offset = 0
+        for ((noteIndex, freq) in notes.withIndex()) {
+            val noteStart = offset
+            val noteSamples = SAMPLE_RATE * durations[noteIndex] / 1000
+            for (j in 0 until noteSamples) {
+                val sampleIndex = noteStart + j
+                if (sampleIndex >= numSamples) break
+                val progress = j.toDouble() / noteSamples
+                val envelope = if (progress < 0.05) progress / 0.05
+                else if (noteIndex == notes.lastIndex) (1.0 - progress) * (1.0 - progress)
+                else 1.0 - progress * 0.3
+                val sample = (Short.MAX_VALUE * 0.4 * envelope * sin(TWO_PI * freq * j / SAMPLE_RATE))
+                    .toInt()
+                samples[sampleIndex] = (samples[sampleIndex] + sample)
+                    .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+            }
+            offset += noteSamples
         }
         return samples
     }

@@ -37,7 +37,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -58,6 +57,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
@@ -68,6 +68,15 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+
+fun formatCountdown(millis: Long): String {
+    val clamped = millis.coerceAtLeast(0L)
+    val totalSeconds = clamped / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    val centiseconds = (clamped % 1000) / 10
+    return "%02d:%02d.%02d".format(minutes, seconds, centiseconds)
+}
 
 fun formatTime(millis: Long): String {
     val totalSeconds = millis / 1000
@@ -132,6 +141,8 @@ fun GameScreen(viewModel: GameViewModel) {
                 SoundEvent.FANFARE -> soundManager.playFanfare()
                 SoundEvent.EXPLOSION -> soundManager.playCorrect() // reuse for now
                 SoundEvent.HAZARD_SPREAD -> soundManager.playWrong()
+                SoundEvent.COUNTDOWN_BEEP -> soundManager.playCountdownBeep()
+                SoundEvent.TIME_UP -> soundManager.playTimeUp()
             }
         }
     }
@@ -248,11 +259,17 @@ fun GameScreen(viewModel: GameViewModel) {
                         fontWeight = FontWeight.Bold,
                         color = AccentGold
                     )
+                    val timerColor = when {
+                        !state.timerStarted -> Color(0xFF80D8FF)
+                        state.remainingMillis <= 10_000L -> Color(0xFFFF1744) // Red in last 10s
+                        state.remainingMillis <= 20_000L -> Color(0xFFFFAB00) // Amber in last 20s
+                        else -> Color(0xFF80D8FF)
+                    }
                     Text(
-                        text = formatTime(state.elapsedMillis),
+                        text = formatCountdown(state.remainingMillis),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF80D8FF)
+                        color = timerColor
                     )
                 }
             }
@@ -387,120 +404,123 @@ fun GameScreen(viewModel: GameViewModel) {
         }
     }
 
-    // Level complete dialog
+    // Game over dialog (win or time-up loss)
     if (state.gameOver) {
-        AlertDialog(
-            onDismissRequest = { },
-            containerColor = Color(0xFF1A0533),
-            titleContentColor = AccentGold,
-            textContentColor = TextPrimary,
-            title = {
-                Text(
-                    text = "Level ${state.level} Complete!",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 22.sp,
-                    modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center
-                )
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+        if (state.timeUp) {
+            // Time-up loss dialog
+            AlertDialog(
+                onDismissRequest = { },
+                containerColor = Color(0xFF1A0533),
+                titleContentColor = Color(0xFFFF1744),
+                textContentColor = TextPrimary,
+                title = {
                     Text(
-                        text = "All tiles are home!",
-                        fontSize = 16.sp,
-                        textAlign = TextAlign.Center,
-                        color = TextSecondary
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = formatTime(state.elapsedMillis),
-                        fontSize = 28.sp,
+                        text = "Time's Up!",
                         fontWeight = FontWeight.ExtraBold,
-                        textAlign = TextAlign.Center,
-                        color = Color(0xFF80D8FF)
+                        fontSize = 22.sp,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
                     )
-                    if (state.isNewHighScore) {
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "You ran out of time on Level ${state.level}",
+                            fontSize = 16.sp,
+                            textAlign = TextAlign.Center,
+                            color = TextSecondary
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "${state.tilesPlaced} / ${state.totalTiles} tiles placed",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            color = AccentGold
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.startNewGame() }) {
+                        Text(
+                            "Try Again",
+                            color = AccentGold,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    }
+                },
+                dismissButton = {}
+            )
+        } else {
+            // Win dialog
+            AlertDialog(
+                onDismissRequest = { },
+                containerColor = Color(0xFF1A0533),
+                titleContentColor = AccentGold,
+                textContentColor = TextPrimary,
+                title = {
+                    Text(
+                        text = "Level ${state.level} Complete!",
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 22.sp,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "All tiles are home!",
+                            fontSize = 16.sp,
+                            textAlign = TextAlign.Center,
+                            color = TextSecondary
+                        )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "New Best Time!",
-                            fontSize = 16.sp,
+                            text = formatCountdown(state.remainingMillis) + " remaining",
+                            fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
-                            color = AccentGold,
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            color = Color(0xFF80D8FF)
                         )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = Color(0xFF7C4DFF).copy(alpha = 0.3f))
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = "Fastest Times",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        color = AccentGoldLight
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    if (state.highScores.isEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "No scores yet",
+                            text = "Completed in ${formatTime(state.elapsedMillis)}",
                             fontSize = 14.sp,
-                            color = TextSecondary,
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            color = TextSecondary
                         )
-                    } else {
-                        state.highScores.forEachIndexed { index, time ->
-                            val isCurrent = time == state.elapsedMillis && state.isNewHighScore
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 3.dp),
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = "#${index + 1}",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isCurrent) AccentGold else TextSecondary,
-                                    modifier = Modifier.width(36.dp)
-                                )
-                                Text(
-                                    text = formatTime(time),
-                                    fontSize = 15.sp,
-                                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
-                                    color = if (isCurrent) AccentGold else TextPrimary
-                                )
-                            }
-                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.startNextLevel() }) {
+                        Text(
+                            "Next Level",
+                            color = AccentGold,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.startNewGame() }) {
+                        Text(
+                            "Restart",
+                            color = TextSecondary,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp
+                        )
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { viewModel.startNextLevel() }) {
-                    Text(
-                        "Next Level",
-                        color = AccentGold,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { viewModel.startNewGame() }) {
-                    Text(
-                        "Restart",
-                        color = TextSecondary,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 14.sp
-                    )
-                }
-            }
-        )
+            )
+        }
     }
 }
 
@@ -554,16 +574,18 @@ fun FlyingTileOverlay(
                     color = info.tile.color.color,
                     highlight = info.tile.color.highlight,
                     shadow = info.tile.color.shadow,
-                    size = 48
+                    size = 48,
+                    tileShape = info.tile.color.tileShape
                 ) {
-                    Text(text = "\u26A0", fontSize = 18.sp)
+                    Text(text = "\uD83C\uDFED", fontSize = 18.sp)
                 }
             } else {
                 CandyTile(
                     color = info.tile.color.color,
                     highlight = info.tile.color.highlight,
                     shadow = info.tile.color.shadow,
-                    size = 48
+                    size = 48,
+                    tileShape = info.tile.color.tileShape
                 )
             }
         }
@@ -628,7 +650,8 @@ fun ExplodingTilesOverlay(
                     color = info.tile.color.color,
                     highlight = info.tile.color.highlight,
                     shadow = info.tile.color.shadow,
-                    size = 40
+                    size = 40,
+                    tileShape = info.tile.color.tileShape
                 )
             }
         }
@@ -641,24 +664,24 @@ fun CandyTile(
     highlight: Color,
     shadow: Color,
     size: Int,
+    tileShape: Shape = RoundedCornerShape((size / 4).dp),
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit = {}
 ) {
-    val shape = RoundedCornerShape((size / 4).dp)
     Box(modifier = modifier) {
         // Shadow layer
         Box(
             modifier = Modifier
                 .size(size.dp)
                 .offset(y = 2.dp)
-                .clip(shape)
+                .clip(tileShape)
                 .background(shadow)
         )
         // Main candy body
         Box(
             modifier = Modifier
                 .size(size.dp)
-                .clip(shape)
+                .clip(tileShape)
                 .background(color)
         ) {
             // Glossy highlight at top-left
@@ -825,13 +848,14 @@ fun PileView(
                                 color = topTile.color.color,
                                 highlight = topTile.color.highlight,
                                 shadow = topTile.color.shadow,
-                                size = 48
+                                size = 48,
+                                tileShape = topTile.color.tileShape
                             ) {
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
                                     Text(
-                                        text = "\u26A0",
+                                        text = "\uD83C\uDFED",
                                         fontSize = 18.sp
                                     )
                                     Text(
@@ -848,7 +872,8 @@ fun PileView(
                                 color = topTile.color.color,
                                 highlight = topTile.color.highlight,
                                 shadow = topTile.color.shadow,
-                                size = 48
+                                size = 48,
+                                tileShape = topTile.color.tileShape
                             )
                         }
 
@@ -958,7 +983,8 @@ fun HomeView(
                 color = homeColor.color,
                 highlight = homeColor.highlight,
                 shadow = homeColor.shadow,
-                size = 36
+                size = 36,
+                tileShape = homeColor.tileShape
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(

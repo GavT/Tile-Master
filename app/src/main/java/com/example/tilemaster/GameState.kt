@@ -8,11 +8,11 @@ data class GameState(
     val totalTiles: Int = 45,
     val level: Int = 1,
     val gameOver: Boolean = false,
+    val timeUp: Boolean = false, // true = lost (ran out of time), false = won (cleared all tiles)
     val timerStarted: Boolean = false,
     val elapsedMillis: Long = 0L,
     val startTimeMillis: Long = 0L,
-    val highScores: List<Long> = emptyList(),
-    val isNewHighScore: Boolean = false,
+    val timeLimitMillis: Long = 60_000L,
     val colorTotals: Map<TileColor, Int> = emptyMap(),
     // Animation triggers
     val wrongShakeKey: Int = 0,
@@ -27,8 +27,10 @@ data class GameState(
     val bombExplosionKey: Int = 0,
     val bombExplosionPileIndex: Int = -1,
     val bombExplodedTiles: List<Pair<Int, Tile>> = emptyList() // (pileIndex, tile) pairs
-)
+) {
+    val remainingMillis: Long get() = (timeLimitMillis - elapsedMillis).coerceAtLeast(0L)
+}
 
 enum class SoundEvent {
-    CLICK, CORRECT, WRONG, FANFARE, EXPLOSION, HAZARD_SPREAD
+    CLICK, CORRECT, WRONG, FANFARE, EXPLOSION, HAZARD_SPREAD, COUNTDOWN_BEEP, TIME_UP
 }

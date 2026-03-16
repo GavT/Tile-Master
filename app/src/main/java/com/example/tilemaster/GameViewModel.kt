@@ -18,18 +18,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val MAX_LEVEL = 96 // Cap at 100 tiles per pile (4 + 96)
+        private const val TIMER_DURATION_MS = 60_000L
     }
-
-    private val highScoreManager = HighScoreManager(application)
 
     private val _state = MutableStateFlow(GameState())
     val state: StateFlow<GameState> = _state.asStateFlow()
 
-    private val _soundEvent = MutableSharedFlow<SoundEvent>(extraBufferCapacity = 1)
+    private val _soundEvent = MutableSharedFlow<SoundEvent>(extraBufferCapacity = 4)
     val soundEvent: SharedFlow<SoundEvent> = _soundEvent.asSharedFlow()
 
     private var timerJob: Job? = null
     private var hazardJob: Job? = null
+    private var lastBeepSecond: Int = -1
 
     init {
         startNewGame()
@@ -46,6 +46,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private fun startLevel(level: Int) {
         timerJob?.cancel()
         hazardJob?.cancel()
+        lastBeepSecond = -1
 
         val safeLevel = level.coerceIn(1, MAX_LEVEL)
         val tilesPerPile = 4 + safeLevel  // Level 1 = 5, Level 2 = 6, etc.
@@ -108,7 +109,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             totalTiles = totalTiles,
             level = safeLevel,
             colorTotals = colorTotals,
-            highScores = highScoreManager.getHighScores()
+            timeLimitMillis = TIMER_DURATION_MS
         )
     }
 
@@ -120,11 +121,33 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         timerJob = viewModelScope.launch {
             while (true) {
                 delay(33L) // ~30fps — sufficient for centisecond display
-                _state.update {
-                    if (!it.gameOver) {
-                        it.copy(elapsedMillis = System.currentTimeMillis() - it.startTimeMillis)
+                _state.update { current ->
+                    if (current.gameOver) return@update current
+
+                    val elapsed = System.currentTimeMillis() - current.startTimeMillis
+                    val remaining = (current.timeLimitMillis - elapsed).coerceAtLeast(0L)
+
+                    // Countdown beep for last 10 seconds
+                    if (remaining in 1..10_000L) {
+                        val currentSecond = ((remaining - 1) / 1000).toInt() // 0-9
+                        if (currentSecond != lastBeepSecond) {
+                            lastBeepSecond = currentSecond
+                            _soundEvent.tryEmit(SoundEvent.COUNTDOWN_BEEP)
+                        }
+                    }
+
+                    // Time's up
+                    if (remaining <= 0L) {
+                        timerJob?.cancel()
+                        hazardJob?.cancel()
+                        _soundEvent.tryEmit(SoundEvent.TIME_UP)
+                        current.copy(
+                            elapsedMillis = current.timeLimitMillis,
+                            gameOver = true,
+                            timeUp = true
+                        )
                     } else {
-                        it
+                        current.copy(elapsedMillis = elapsed)
                     }
                 }
             }
@@ -266,8 +289,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             currentState.elapsedMillis
         }
-        val isNewHigh = if (gameOver) highScoreManager.addScore(finalTime) else false
-
         _state.value = currentState.copy(
             piles = newPiles.map { it.toList() },
             selectedTile = null,
@@ -275,8 +296,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             tilesPlaced = newCount,
             gameOver = gameOver,
             elapsedMillis = finalTime,
-            highScores = if (gameOver) highScoreManager.getHighScores() else currentState.highScores,
-            isNewHighScore = isNewHigh,
             bombExplosionKey = currentState.bombExplosionKey + 1,
             bombExplosionPileIndex = pileIndex,
             bombExplodedTiles = explodedTiles
@@ -356,12 +375,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     currentState.elapsedMillis
                 }
 
-                val isNewHigh = if (gameOver) {
-                    highScoreManager.addScore(finalTime)
-                } else {
-                    false
-                }
-
                 _state.value = currentState.copy(
                     piles = newPiles.map { it.toList() },
                     selectedTile = null,
@@ -369,8 +382,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     tilesPlaced = newCount,
                     gameOver = gameOver,
                     elapsedMillis = finalTime,
-                    highScores = if (gameOver) highScoreManager.getHighScores() else currentState.highScores,
-                    isNewHighScore = isNewHigh,
                     correctPopKey = currentState.correctPopKey + 1,
                     correctPopColor = homeColor,
                     correctPopPileIndex = pileIndex,
