@@ -13,6 +13,30 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlin.random.Random
+
+private data class LevelConfig(
+    val tilesPerPile: Int,
+    val timeLimitMs: Long,
+    val bombCount: Int,
+    val hazardCount: Int,
+    val hazardSpreadMs: Long,
+    val factoryBombChance: Double // probability that hazard spread creates a bomb instead of a tile
+)
+
+private fun getLevelConfig(level: Int): LevelConfig = when (level) {
+    1  -> LevelConfig(tilesPerPile = 4, timeLimitMs = 90_000L, bombCount = 5, hazardCount = 0, hazardSpreadMs = 3000L, factoryBombChance = 0.03)
+    2  -> LevelConfig(tilesPerPile = 4, timeLimitMs = 80_000L, bombCount = 5, hazardCount = 0, hazardSpreadMs = 3000L, factoryBombChance = 0.05)
+    3  -> LevelConfig(tilesPerPile = 5, timeLimitMs = 75_000L, bombCount = 4, hazardCount = 2, hazardSpreadMs = 3000L, factoryBombChance = 0.07)
+    4  -> LevelConfig(tilesPerPile = 5, timeLimitMs = 70_000L, bombCount = 4, hazardCount = 3, hazardSpreadMs = 2800L, factoryBombChance = 0.10)
+    5  -> LevelConfig(tilesPerPile = 6, timeLimitMs = 65_000L, bombCount = 3, hazardCount = 4, hazardSpreadMs = 2500L, factoryBombChance = 0.12)
+    6  -> LevelConfig(tilesPerPile = 6, timeLimitMs = 60_000L, bombCount = 3, hazardCount = 5, hazardSpreadMs = 2300L, factoryBombChance = 0.15)
+    7  -> LevelConfig(tilesPerPile = 7, timeLimitMs = 55_000L, bombCount = 2, hazardCount = 7, hazardSpreadMs = 2000L, factoryBombChance = 0.18)
+    8  -> LevelConfig(tilesPerPile = 7, timeLimitMs = 50_000L, bombCount = 2, hazardCount = 9, hazardSpreadMs = 1800L, factoryBombChance = 0.20)
+    9  -> LevelConfig(tilesPerPile = 8, timeLimitMs = 48_000L, bombCount = 1, hazardCount = 10, hazardSpreadMs = 1600L, factoryBombChance = 0.23)
+    10 -> LevelConfig(tilesPerPile = 8, timeLimitMs = 45_000L, bombCount = 1, hazardCount = 12, hazardSpreadMs = 1500L, factoryBombChance = 0.25)
+    else -> getLevelConfig(level.coerceIn(1, 10))
+}
 
 private data class LevelConfig(
     val tilesPerPile: Int,
@@ -64,6 +88,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         startLevel(_state.value.level + 1)
     }
 
+    fun retryLevel() {
+        startLevel(_state.value.level)
+    }
+
     private fun startLevel(level: Int) {
         timerJob?.cancel()
         hazardJob?.cancel()
@@ -72,6 +100,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val safeLevel = level.coerceIn(1, MAX_LEVEL)
         val config = getLevelConfig(safeLevel)
         val colors = TileColor.entries.toTypedArray()
+
+        // Use a fixed seed per level so tile layout is always the same
+        val rng = Random(safeLevel.toLong() * 31337L)
+
         val mutablePiles = MutableList(9) {
             val pile = mutableListOf<Tile>()
             repeat(config.tilesPerPile) {
@@ -103,7 +135,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
         val hazardPositions = hazardEligible.shuffled().take(config.hazardCount)
         for ((p, t) in hazardPositions) {
-            val marks = (1..3).random()
+            val marks = rng.nextInt(1, 4) // 1-3
             mutablePiles[p][t] = mutablePiles[p][t].copy(isHazard = true, hazardMarks = marks)
         }
 
@@ -212,9 +244,15 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     val pile = newPiles[pileIndex]
                     if (pile.isNotEmpty() && pile.last().isHazard) {
                         val hazardTile = pile.last()
-                        // Spread: add tiles of this color to adjacent piles
+                        val bombChance = currentState.factoryBombChance
+                        // Spread: add tiles (or bombs) to adjacent piles
                         for (adjIndex in getAdjacentIndices(pileIndex)) {
-                            newPiles[adjIndex].add(Tile(color = hazardTile.color))
+                            val newTile = if (Random.nextDouble() < bombChance) {
+                                Tile(color = hazardTile.color, isBomb = true)
+                            } else {
+                                Tile(color = hazardTile.color)
+                            }
+                            newPiles[adjIndex].add(newTile)
                         }
                         // Reset the timer for this hazard
                         newTimers[pileIndex] = now
@@ -284,18 +322,48 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val currentState = _state.value
         val newPiles = currentState.piles.map { it.toMutableList() }
 
-        // Remove the bomb itself
-        newPiles[pileIndex].removeAt(newPiles[pileIndex].lastIndex)
+        // BFS to find all chain-connected bombs (domino effect)
+        val chainBombs = mutableSetOf(pileIndex)
+        val queue = ArrayDeque<Int>()
+        queue.add(pileIndex)
 
-        // Destroy top tile of each adjacent pile and collect for animation
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            for (adjIndex in getAdjacentIndices(current)) {
+                if (adjIndex !in chainBombs &&
+                    newPiles[adjIndex].isNotEmpty() &&
+                    newPiles[adjIndex].last().isBomb
+                ) {
+                    chainBombs.add(adjIndex)
+                    queue.add(adjIndex)
+                }
+            }
+        }
+
+        // Remove all chain bombs from their piles
+        for (bombIdx in chainBombs) {
+            if (newPiles[bombIdx].isNotEmpty()) {
+                newPiles[bombIdx].removeAt(newPiles[bombIdx].lastIndex)
+            }
+        }
+
+        // Destroy top tile of each pile adjacent to any chain bomb
+        // (each non-bomb pile loses at most one tile)
         var tilesPlaced = 0
         val explodedTiles = mutableListOf<Pair<Int, Tile>>()
-        for (adjIndex in getAdjacentIndices(pileIndex)) {
-            if (newPiles[adjIndex].isNotEmpty()) {
-                val adjTile = newPiles[adjIndex].removeAt(newPiles[adjIndex].lastIndex)
-                if (!adjTile.isBomb) {
-                    tilesPlaced++
-                    explodedTiles.add(adjIndex to adjTile)
+        val affectedPiles = mutableSetOf<Int>()
+
+        for (bombIdx in chainBombs) {
+            for (adjIndex in getAdjacentIndices(bombIdx)) {
+                if (adjIndex !in chainBombs && adjIndex !in affectedPiles) {
+                    affectedPiles.add(adjIndex)
+                    if (newPiles[adjIndex].isNotEmpty()) {
+                        val adjTile = newPiles[adjIndex].removeAt(newPiles[adjIndex].lastIndex)
+                        if (!adjTile.isBomb) {
+                            tilesPlaced++
+                            explodedTiles.add(adjIndex to adjTile)
+                        }
+                    }
                 }
             }
         }
@@ -316,7 +384,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             elapsedMillis = finalTime,
             bombExplosionKey = currentState.bombExplosionKey + 1,
             bombExplosionPileIndex = pileIndex,
-            bombExplodedTiles = explodedTiles
+            bombExplodedTiles = explodedTiles,
+            bombChainPiles = chainBombs
         )
 
         if (gameOver) {
@@ -393,6 +462,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     currentState.elapsedMillis
                 }
 
+                // Check if this color is now fully completed
+                val remainingOfColor = newPiles.sumOf { pile ->
+                    pile.count { !it.isBomb && it.color == homeColor }
+                }
+                val colorJustCompleted = remainingOfColor == 0 &&
+                        (currentState.colorTotals[homeColor] ?: 0) > 0
+
                 _state.value = currentState.copy(
                     piles = newPiles.map { it.toList() },
                     selectedTile = null,
@@ -403,12 +479,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     correctPopKey = currentState.correctPopKey + 1,
                     correctPopColor = homeColor,
                     correctPopPileIndex = pileIndex,
-                    correctPopTile = selectedTile
+                    correctPopTile = selectedTile,
+                    colorCompletedKey = if (colorJustCompleted) currentState.colorCompletedKey + 1 else currentState.colorCompletedKey,
+                    colorCompletedColor = if (colorJustCompleted) homeColor else currentState.colorCompletedColor
                 )
                 if (gameOver) {
                     timerJob?.cancel()
                     hazardJob?.cancel()
                     _soundEvent.tryEmit(SoundEvent.FANFARE)
+                } else if (colorJustCompleted) {
+                    _soundEvent.tryEmit(SoundEvent.CORRECT)
+                    _soundEvent.tryEmit(SoundEvent.COLOR_COMPLETE)
                 } else {
                     _soundEvent.tryEmit(SoundEvent.CORRECT)
                 }

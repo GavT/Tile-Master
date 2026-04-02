@@ -28,11 +28,17 @@ data class GameState(
     // Bomb explosion animation
     val bombExplosionKey: Int = 0,
     val bombExplosionPileIndex: Int = -1,
-    val bombExplodedTiles: List<Pair<Int, Tile>> = emptyList() // (pileIndex, tile) pairs
+    val bombExplodedTiles: List<Pair<Int, Tile>> = emptyList(), // (pileIndex, tile) pairs
+    val bombChainPiles: Set<Int> = emptySet(), // all pile indices involved in a chain explosion
+    // Factory bomb chance (probability that hazard spread creates a bomb)
+    val factoryBombChance: Double = 0.0,
+    // Color completion animation
+    val colorCompletedKey: Int = 0,
+    val colorCompletedColor: TileColor? = null
 ) {
     val remainingMillis: Long get() = (timeLimitMillis - elapsedMillis).coerceAtLeast(0L)
 }
 
 enum class SoundEvent {
-    CLICK, CORRECT, WRONG, FANFARE, EXPLOSION, HAZARD_SPREAD, COUNTDOWN_BEEP, TIME_UP
+    CLICK, CORRECT, WRONG, FANFARE, EXPLOSION, HAZARD_SPREAD, COUNTDOWN_BEEP, TIME_UP, COLOR_COMPLETE
 }

@@ -53,6 +53,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -132,13 +133,14 @@ fun GameScreen(viewModel: GameViewModel) {
         viewModel.soundEvent.collect { event ->
             when (event) {
                 SoundEvent.CLICK -> soundManager.playClick()
-                SoundEvent.CORRECT -> soundManager.playCorrect()
+                SoundEvent.CORRECT -> soundManager.playSuckHome()
                 SoundEvent.WRONG -> soundManager.playWrong()
                 SoundEvent.FANFARE -> soundManager.playFanfare()
-                SoundEvent.EXPLOSION -> soundManager.playCorrect() // reuse for now
+                SoundEvent.EXPLOSION -> soundManager.playExplosion()
                 SoundEvent.HAZARD_SPREAD -> soundManager.playWrong()
                 SoundEvent.COUNTDOWN_BEEP -> soundManager.playCountdownBeep()
                 SoundEvent.TIME_UP -> soundManager.playTimeUp()
+                SoundEvent.COLOR_COMPLETE -> soundManager.playThunkComplete()
             }
         }
     }
@@ -349,6 +351,7 @@ fun GameScreen(viewModel: GameViewModel) {
                     val totalForColor = state.colorTotals[homeColor] ?: 0
                     val remainingForColor = remainingPerColor[homeColor] ?: 0
                     val placedForColor = totalForColor - remainingForColor
+                    val isCompleted = remainingForColor == 0 && totalForColor > 0
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -370,6 +373,8 @@ fun GameScreen(viewModel: GameViewModel) {
                             popKey = if (state.correctPopColor == homeColor) state.correctPopKey else 0,
                             placedCount = placedForColor,
                             totalCount = totalForColor,
+                            isCompleted = isCompleted,
+                            spinKey = if (state.colorCompletedColor == homeColor) state.colorCompletedKey else 0,
                             onClick = { viewModel.placeInHome(homeColor) },
                             modifier = Modifier.fillMaxSize()
                         )
@@ -438,7 +443,7 @@ fun GameScreen(viewModel: GameViewModel) {
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = { viewModel.startNewGame() }) {
+                    TextButton(onClick = { viewModel.retryLevel() }) {
                         Text(
                             "Try Again",
                             color = AccentGold,
@@ -447,7 +452,16 @@ fun GameScreen(viewModel: GameViewModel) {
                         )
                     }
                 },
-                dismissButton = {}
+                dismissButton = {
+                    TextButton(onClick = { viewModel.startNewGame() }) {
+                        Text(
+                            "Restart",
+                            color = TextSecondary,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
             )
         } else {
             val isFinalLevel = state.level >= state.maxLevel
@@ -885,6 +899,8 @@ fun HomeView(
     popKey: Int,
     placedCount: Int,
     totalCount: Int,
+    isCompleted: Boolean,
+    spinKey: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -915,6 +931,26 @@ fun HomeView(
         }
     }
 
+    // Spin animation when color is completed
+    val spinRotation = remember { Animatable(0f) }
+    LaunchedEffect(spinKey) {
+        if (spinKey > 0) {
+            delay(400) // wait for fly + pop to finish
+            spinRotation.snapTo(0f)
+            spinRotation.animateTo(
+                360f,
+                animationSpec = tween(600, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+
+    // Dim alpha — animates smoothly between bright and dim
+    val dimAlpha by animateFloatAsState(
+        targetValue = if (isCompleted) 0.4f else 1f,
+        animationSpec = tween(500),
+        label = "dimAlpha"
+    )
+
     val pressScale by animateFloatAsState(
         targetValue = if (isPressed) 0.90f else 1f,
         animationSpec = spring(stiffness = Spring.StiffnessMedium),
@@ -934,6 +970,10 @@ fun HomeView(
     Card(
         modifier = modifier
             .scale(combinedScale)
+            .graphicsLayer {
+                rotationY = spinRotation.value
+                alpha = dimAlpha
+            }
             .shadow(
                 elevation = if (isHighlighted) 8.dp else 2.dp,
                 shape = shape,
