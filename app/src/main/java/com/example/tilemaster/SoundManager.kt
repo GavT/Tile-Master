@@ -13,8 +13,10 @@ class SoundManager {
 
     // Pre-generate short sounds to avoid repeated allocation
     private val clickSamples: ShortArray by lazy { generateClick() }
-    private val correctSamples: ShortArray by lazy { generateCorrectPing() }
+    private val suckHomeSamples: ShortArray by lazy { generateSuckHome() }
     private val wrongSamples: ShortArray by lazy { generateWrongBuzz() }
+    private val explosionSamples: ShortArray by lazy { generateExplosion() }
+    private val thunkCompleteSamples: ShortArray by lazy { generateThunkComplete() }
     private val countdownBeepSamples: ShortArray by lazy { generateCountdownBeep() }
     private val timeUpSamples: ShortArray by lazy { generateTimeUp() }
 
@@ -22,12 +24,20 @@ class SoundManager {
         playOnExecutor(clickSamples)
     }
 
-    fun playCorrect() {
-        playOnExecutor(correctSamples)
+    fun playSuckHome() {
+        playOnExecutor(suckHomeSamples)
     }
 
     fun playWrong() {
         playOnExecutor(wrongSamples)
+    }
+
+    fun playExplosion() {
+        playOnExecutor(explosionSamples)
+    }
+
+    fun playThunkComplete() {
+        playOnExecutor(thunkCompleteSamples)
     }
 
     fun playFanfare() {
@@ -90,23 +100,26 @@ class SoundManager {
         }
     }
 
+    // Satisfying short click — two-tone percussive pop, ~40ms
     private fun generateClick(): ShortArray {
-        val numSamples = SAMPLE_RATE * 30 / 1000 // 30ms
+        val numSamples = SAMPLE_RATE * 40 / 1000
         return ShortArray(numSamples) { i ->
             val progress = i.toDouble() / numSamples
-            val envelope = 1.0 - progress
-            (Short.MAX_VALUE * 0.5 * envelope * sin(TWO_PI * 3000.0 * i / SAMPLE_RATE))
-                .toInt().toShort()
+            val envelope = (1.0 - progress) * (1.0 - progress)
+            val tone = sin(TWO_PI * 1800.0 * i / SAMPLE_RATE) * 0.6 +
+                    sin(TWO_PI * 3200.0 * i / SAMPLE_RATE) * 0.4
+            (Short.MAX_VALUE * 0.3 * envelope * tone).toInt().toShort()
         }
     }
 
-    private fun generateCorrectPing(): ShortArray {
-        val numSamples = SAMPLE_RATE * 200 / 1000 // 200ms
+    // Short suck sound for homing a tile — quick descending sweep, ~80ms
+    private fun generateSuckHome(): ShortArray {
+        val numSamples = SAMPLE_RATE * 80 / 1000
         return ShortArray(numSamples) { i ->
             val progress = i.toDouble() / numSamples
-            val freq = 880.0 + 440.0 * progress
-            val envelope = (1.0 - progress) * (1.0 - progress)
-            (Short.MAX_VALUE * 0.5 * envelope * sin(TWO_PI * freq * i / SAMPLE_RATE))
+            val freq = 2000.0 - 1600.0 * progress // sweep down from 2000 to 400 Hz
+            val envelope = if (progress < 0.1) progress / 0.1 else (1.0 - progress)
+            (Short.MAX_VALUE * 0.35 * envelope * sin(TWO_PI * freq * i / SAMPLE_RATE))
                 .toInt().toShort()
         }
     }
@@ -119,6 +132,31 @@ class SoundManager {
             val envelope = 1.0 - progress
             (Short.MAX_VALUE * 0.4 * envelope * sin(TWO_PI * freq * i / SAMPLE_RATE))
                 .toInt().toShort()
+        }
+    }
+
+    // Small explosion — white noise burst with low-freq rumble, ~200ms
+    private fun generateExplosion(): ShortArray {
+        val numSamples = SAMPLE_RATE * 200 / 1000
+        val rng = java.util.Random(42)
+        return ShortArray(numSamples) { i ->
+            val progress = i.toDouble() / numSamples
+            val envelope = (1.0 - progress) * (1.0 - progress)
+            val noise = (rng.nextDouble() * 2.0 - 1.0) * 0.5
+            val rumble = sin(TWO_PI * 80.0 * i / SAMPLE_RATE) * 0.5
+            (Short.MAX_VALUE * 0.35 * envelope * (noise + rumble)).toInt().toShort()
+        }
+    }
+
+    // Dull thunk for completing all tiles of one color — low impact, ~120ms
+    private fun generateThunkComplete(): ShortArray {
+        val numSamples = SAMPLE_RATE * 120 / 1000
+        return ShortArray(numSamples) { i ->
+            val progress = i.toDouble() / numSamples
+            val envelope = (1.0 - progress) * (1.0 - progress) * (1.0 - progress)
+            val tone = sin(TWO_PI * 120.0 * i / SAMPLE_RATE) * 0.7 +
+                    sin(TWO_PI * 80.0 * i / SAMPLE_RATE) * 0.3
+            (Short.MAX_VALUE * 0.5 * envelope * tone).toInt().toShort()
         }
     }
 
