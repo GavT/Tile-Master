@@ -38,6 +38,28 @@ private fun getLevelConfig(level: Int): LevelConfig = when (level) {
     else -> getLevelConfig(level.coerceIn(1, 10))
 }
 
+private data class LevelConfig(
+    val tilesPerPile: Int,
+    val timeLimitMs: Long,
+    val bombCount: Int,
+    val hazardCount: Int,
+    val hazardSpreadMs: Long
+)
+
+private fun getLevelConfig(level: Int): LevelConfig = when (level) {
+    1  -> LevelConfig(tilesPerPile = 4, timeLimitMs = 90_000L, bombCount = 5, hazardCount = 0, hazardSpreadMs = 3000L)
+    2  -> LevelConfig(tilesPerPile = 4, timeLimitMs = 80_000L, bombCount = 5, hazardCount = 0, hazardSpreadMs = 3000L)
+    3  -> LevelConfig(tilesPerPile = 5, timeLimitMs = 75_000L, bombCount = 4, hazardCount = 2, hazardSpreadMs = 3000L)
+    4  -> LevelConfig(tilesPerPile = 5, timeLimitMs = 70_000L, bombCount = 4, hazardCount = 3, hazardSpreadMs = 2800L)
+    5  -> LevelConfig(tilesPerPile = 6, timeLimitMs = 65_000L, bombCount = 3, hazardCount = 4, hazardSpreadMs = 2500L)
+    6  -> LevelConfig(tilesPerPile = 6, timeLimitMs = 60_000L, bombCount = 3, hazardCount = 5, hazardSpreadMs = 2300L)
+    7  -> LevelConfig(tilesPerPile = 7, timeLimitMs = 55_000L, bombCount = 2, hazardCount = 7, hazardSpreadMs = 2000L)
+    8  -> LevelConfig(tilesPerPile = 7, timeLimitMs = 50_000L, bombCount = 2, hazardCount = 9, hazardSpreadMs = 1800L)
+    9  -> LevelConfig(tilesPerPile = 8, timeLimitMs = 48_000L, bombCount = 1, hazardCount = 10, hazardSpreadMs = 1600L)
+    10 -> LevelConfig(tilesPerPile = 8, timeLimitMs = 45_000L, bombCount = 1, hazardCount = 12, hazardSpreadMs = 1500L)
+    else -> getLevelConfig(level.coerceIn(1, 10))
+}
+
 class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
@@ -85,7 +107,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val mutablePiles = MutableList(9) {
             val pile = mutableListOf<Tile>()
             repeat(config.tilesPerPile) {
-                val color = colors[rng.nextInt(colors.size)]
+                val color = colors.random()
                 pile.add(Tile(color = color))
             }
             pile
@@ -98,7 +120,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 bombEligible.add(p to t)
             }
         }
-        val bombPositions = bombEligible.shuffled(rng).take(config.bombCount)
+        val bombPositions = bombEligible.shuffled().take(config.bombCount)
         for ((p, t) in bombPositions) {
             mutablePiles[p][t] = mutablePiles[p][t].copy(isBomb = true)
         }
@@ -111,7 +133,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 if (!tile.isBomb) hazardEligible.add(p to t)
             }
         }
-        val hazardPositions = hazardEligible.shuffled(rng).take(config.hazardCount)
+        val hazardPositions = hazardEligible.shuffled().take(config.hazardCount)
         for ((p, t) in hazardPositions) {
             val marks = rng.nextInt(1, 4) // 1-3
             mutablePiles[p][t] = mutablePiles[p][t].copy(isHazard = true, hazardMarks = marks)
@@ -137,8 +159,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             colorTotals = colorTotals,
             timeLimitMillis = config.timeLimitMs,
             hazardSpreadMs = config.hazardSpreadMs,
-            maxLevel = MAX_LEVEL,
-            factoryBombChance = config.factoryBombChance
+            maxLevel = MAX_LEVEL
         )
     }
 
